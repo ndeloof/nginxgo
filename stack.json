@@ -208,6 +208,9 @@
       "Type": "AWS::ECS::Cluster"
     },
     "FrontendService": {
+      "DependsOn": [
+        "BackendService"
+      ],
       "Properties": {
         "Cluster": {
           "Fn::If": [
