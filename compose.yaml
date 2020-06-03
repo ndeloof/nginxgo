@@ -1,0 +1,10 @@
+version: "3.7"
+services:
+  frontend:
+    image: ndeloof/frontend
+    ports:
+      - 80:80
+
+  backend:
+    image: ndeloof/backend
+    build: backend

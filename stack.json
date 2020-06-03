@@ -1,0 +1,426 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Conditions": {
+    "CreateCluster": {
+      "Fn::Equals": [
+        "",
+        {
+          "Ref": "ParameterClusterName"
+        }
+      ]
+    }
+  },
+  "Parameters": {
+    "ParameterClusterName": {
+      "Description": "Name of the ECS cluster to deploy to (optional)",
+      "Type": "String"
+    },
+    "ParameterSubnet1Id": {
+      "Description": "SubnetId, for Availability Zone 1 in the region in your VPC",
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "ParameterSubnet2Id": {
+      "Description": "SubnetId, for Availability Zone 2 in the region in your VPC",
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "ParameterVPCId": {
+      "Description": "ID of the VPC",
+      "Type": "AWS::EC2::VPC::Id"
+    }
+  },
+  "Resources": {
+    "BackendService": {
+      "Properties": {
+        "Cluster": {
+          "Fn::If": [
+            "CreateCluster",
+            {
+              "Ref": "Cluster"
+            },
+            {
+              "Ref": "ParameterClusterName"
+            }
+          ]
+        },
+        "DesiredCount": 1,
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "ENABLED",
+            "SecurityGroups": [
+              {
+                "Ref": "NginxgoDefaultNetwork"
+              }
+            ],
+            "Subnets": [
+              {
+                "Ref": "ParameterSubnet1Id"
+              },
+              {
+                "Ref": "ParameterSubnet2Id"
+              }
+            ]
+          }
+        },
+        "SchedulingStrategy": "REPLICA",
+        "ServiceName": "backend",
+        "ServiceRegistries": [
+          {
+            "RegistryArn": {
+              "Fn::GetAtt": [
+                "BackendServiceDiscoveryEntry",
+                "Arn"
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "com.docker.compose.project",
+            "Value": "nginxgo"
+          },
+          {
+            "Key": "com.docker.compose.service",
+            "Value": "backend"
+          }
+        ],
+        "TaskDefinition": {
+          "Ref": "BackendTaskDefinition"
+        }
+      },
+      "Type": "AWS::ECS::Service"
+    },
+    "BackendServiceDiscoveryEntry": {
+      "Properties": {
+        "Description": "\"backend\" service discovery entry in Cloud Map",
+        "DnsConfig": {
+          "DnsRecords": [
+            {
+              "TTL": 60,
+              "Type": "A"
+            }
+          ],
+          "RoutingPolicy": "MULTIVALUE"
+        },
+        "Name": "backend",
+        "NamespaceId": {
+          "Ref": "CloudMap"
+        }
+      },
+      "Type": "AWS::ServiceDiscovery::Service"
+    },
+    "BackendTaskDefinition": {
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Environment": [
+              {
+                "Name": "LOCALDOMAIN",
+                "Value": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Ref": "AWS::Region"
+                      },
+                      ".compute.internal",
+                      " nginxgo.local"
+                    ]
+                  ]
+                }
+              }
+            ],
+            "Essential": true,
+            "Image": "docker.io/ndeloof/backend",
+            "LinuxParameters": {},
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "LogGroup"
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "nginxgo"
+              }
+            },
+            "Name": "backend"
+          }
+        ],
+        "Cpu": "256",
+        "ExecutionRoleArn": {
+          "Ref": "BackendTaskExecutionRole"
+        },
+        "Family": "nginxgo-backend",
+        "Memory": "512",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ]
+      },
+      "Type": "AWS::ECS::TaskDefinition"
+    },
+    "BackendTaskExecutionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+          "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "CloudMap": {
+      "Properties": {
+        "Description": "Service Map for Docker Compose project nginxgo",
+        "Name": "nginxgo.local",
+        "Vpc": {
+          "Ref": "ParameterVPCId"
+        }
+      },
+      "Type": "AWS::ServiceDiscovery::PrivateDnsNamespace"
+    },
+    "Cluster": {
+      "Condition": "CreateCluster",
+      "Properties": {
+        "ClusterName": "nginxgo",
+        "Tags": [
+          {
+            "Key": "com.docker.compose.project",
+            "Value": "nginxgo"
+          }
+        ]
+      },
+      "Type": "AWS::ECS::Cluster"
+    },
+    "FrontendService": {
+      "Properties": {
+        "Cluster": {
+          "Fn::If": [
+            "CreateCluster",
+            {
+              "Ref": "Cluster"
+            },
+            {
+              "Ref": "ParameterClusterName"
+            }
+          ]
+        },
+        "DesiredCount": 1,
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "ENABLED",
+            "SecurityGroups": [
+              {
+                "Ref": "NginxgoDefaultNetwork"
+              }
+            ],
+            "Subnets": [
+              {
+                "Ref": "ParameterSubnet1Id"
+              },
+              {
+                "Ref": "ParameterSubnet2Id"
+              }
+            ]
+          }
+        },
+        "SchedulingStrategy": "REPLICA",
+        "ServiceName": "frontend",
+        "ServiceRegistries": [
+          {
+            "Port": 80,
+            "RegistryArn": {
+              "Fn::GetAtt": [
+                "FrontendServiceDiscoveryEntry",
+                "Arn"
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "com.docker.compose.project",
+            "Value": "nginxgo"
+          },
+          {
+            "Key": "com.docker.compose.service",
+            "Value": "frontend"
+          }
+        ],
+        "TaskDefinition": {
+          "Ref": "FrontendTaskDefinition"
+        }
+      },
+      "Type": "AWS::ECS::Service"
+    },
+    "FrontendServiceDiscoveryEntry": {
+      "Properties": {
+        "Description": "\"frontend\" service discovery entry in Cloud Map",
+        "DnsConfig": {
+          "DnsRecords": [
+            {
+              "TTL": 60,
+              "Type": "A"
+            },
+            {
+              "TTL": 60,
+              "Type": "SRV"
+            }
+          ],
+          "RoutingPolicy": "MULTIVALUE"
+        },
+        "Name": "frontend",
+        "NamespaceId": {
+          "Ref": "CloudMap"
+        }
+      },
+      "Type": "AWS::ServiceDiscovery::Service"
+    },
+    "FrontendTaskDefinition": {
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Environment": [
+              {
+                "Name": "LOCALDOMAIN",
+                "Value": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Ref": "AWS::Region"
+                      },
+                      ".compute.internal",
+                      " nginxgo.local"
+                    ]
+                  ]
+                }
+              }
+            ],
+            "Essential": true,
+            "Image": "docker.io/ndeloof/frontend",
+            "LinuxParameters": {},
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "LogGroup"
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "nginxgo"
+              }
+            },
+            "Name": "frontend",
+            "PortMappings": [
+              {
+                "ContainerPort": 80,
+                "HostPort": 80,
+                "Protocol": "tcp"
+              }
+            ]
+          }
+        ],
+        "Cpu": "256",
+        "ExecutionRoleArn": {
+          "Ref": "FrontendTaskExecutionRole"
+        },
+        "Family": "nginxgo-frontend",
+        "Memory": "512",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ]
+      },
+      "Type": "AWS::ECS::TaskDefinition"
+    },
+    "FrontendTaskExecutionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+          "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "LogGroup": {
+      "Properties": {
+        "LogGroupName": "/docker-compose/nginxgo"
+      },
+      "Type": "AWS::Logs::LogGroup"
+    },
+    "NginxgoDefaultNetwork": {
+      "Properties": {
+        "GroupDescription": "nginxgo default Security Group",
+        "GroupName": "NginxgoDefaultNetwork",
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "frontend:80/tcp",
+            "FromPort": 80,
+            "IpProtocol": "TCP",
+            "ToPort": 80
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "com.docker.compose.project",
+            "Value": "nginxgo"
+          },
+          {
+            "Key": "com.docker.compose.network",
+            "Value": "default"
+          }
+        ],
+        "VpcId": {
+          "Ref": "ParameterVPCId"
+        }
+      },
+      "Type": "AWS::EC2::SecurityGroup"
+    },
+    "NginxgoDefaultNetworkIngress": {
+      "Properties": {
+        "Description": "Allow communication within network default",
+        "GroupId": {
+          "Ref": "NginxgoDefaultNetwork"
+        },
+        "IpProtocol": "-1",
+        "SourceSecurityGroupId": {
+          "Ref": "NginxgoDefaultNetwork"
+        }
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress"
+    }
+  }
+}
