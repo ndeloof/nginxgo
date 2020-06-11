@@ -3,9 +3,7 @@ services:
   frontend:
     image: ndeloof/frontend
     ports:
-      - 80:80
-    depends_on:
-      - backend
+      - 80:80      
 
   backend:
     image: ndeloof/backend
